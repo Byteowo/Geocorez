@@ -1,35 +1,38 @@
 package com.example.app1
 
 // --- Imports Android/Kotlin ---
-import android.Manifest // ACTIVA LOS PERMISOS DEL MANIFEST
-import android.content.Intent // ENVIA LA UBI A OTRA APP (EN ESTE CASO A WHATSAPP)
-import android.content.pm.PackageManager // COMPRUEBA LOS PERMISOS
-import android.graphics.Bitmap // CREA EL ICONITO AZUL IGUAL AL DE GOOGLE MAPS
-import android.graphics.Canvas // SE CREA DE FORMA FÍSICA EL ICONITO AZUL
-import android.graphics.Paint // EL ICONITO SE PINTA DE COLOR
-import android.os.Bundle // PROPIO DEL INTELLIJ
-import android.widget.TextView // CUADRITO DONDE MUESTRA DATOS DE LATITUD Y LONGITUD
-import androidx.activity.enableEdgeToEdge // PROPIO DEL INTELLIJ
-import androidx.appcompat.app.AppCompatActivity // PROPIO DEL INTELLIJ
-import androidx.core.app.ActivityCompat // Android: pedir permisos
-import androidx.core.content.ContextCompat // Android: comprobar permisos
-import androidx.core.view.ViewCompat // Android: manejar padding
-import androidx.core.view.WindowInsetsCompat // Android: barras del sistema
-import com.google.android.material.floatingactionbutton.FloatingActionButton // BOTONES FLOTANTES QUE EL INTELLIJ TIENE
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.os.Bundle
+import android.widget.TextView
+import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import com.google.android.material.floatingactionbutton.FloatingActionButton
+
+// --- Imports Firebase ---
+import com.google.firebase.database.FirebaseDatabase
 
 // --- Imports Mapbox ---
-import com.mapbox.geojson.Point // SE REPRESENTAN LAS COORDENADAS CON ESTO
-import com.mapbox.maps.CameraOptions // CAMARA DEL MAPBOX
-import com.mapbox.maps.MapView // PERMITE VER EL MAPA DEL MAPBOX
-import com.mapbox.maps.Style // PERMITE CAMBIAR LOS ESTILOS DEL MAPITA DEL MAPBOX
-import com.mapbox.maps.plugin.annotation.annotations // PUNTEROS DEL MAPBOX
-import com.mapbox.maps.plugin.annotation.generated.PointAnnotation // PUNTERO INDIVIDUAL DEL MAPBOX
-import com.mapbox.maps.plugin.annotation.generated.PointAnnotationManager // GESTIONA LOS PUNTEROS
-import com.mapbox.maps.plugin.annotation.generated.PointAnnotationOptions // OPCIONES DE LOS PUNTEROS
-import com.mapbox.maps.plugin.annotation.generated.createPointAnnotationManager // CREA PUNTEROS
-import com.mapbox.maps.plugin.gestures.gestures // PERMITE HACER ZOOM O MOVERNOS POR EL MAPITA
-import com.mapbox.maps.plugin.locationcomponent.OnIndicatorPositionChangedListener // ESCUCHA O ATRAPA LA UBI
-import com.mapbox.maps.plugin.locationcomponent.location // COMPONENTES DE LA UBI
+import com.mapbox.geojson.Point
+import com.mapbox.maps.CameraOptions
+import com.mapbox.maps.MapView
+import com.mapbox.maps.Style
+import com.mapbox.maps.plugin.annotation.annotations
+import com.mapbox.maps.plugin.annotation.generated.PointAnnotation
+import com.mapbox.maps.plugin.annotation.generated.PointAnnotationManager
+import com.mapbox.maps.plugin.annotation.generated.PointAnnotationOptions
+import com.mapbox.maps.plugin.annotation.generated.createPointAnnotationManager
+import com.mapbox.maps.plugin.gestures.gestures
+import com.mapbox.maps.plugin.locationcomponent.OnIndicatorPositionChangedListener
+import com.mapbox.maps.plugin.locationcomponent.location
 
 class MainActivity : AppCompatActivity() {
 
@@ -45,9 +48,11 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var barraDeLatYLon: TextView
 
-    // Variables agregadas para la gestión del marcador y punto anterior
     private var marcadorUsuario: PointAnnotation? = null
     private var ubiAnterior: Point? = null
+
+    // Referencia a Firebase para la base de datos en tiempo real
+    private val dbRef = FirebaseDatabase.getInstance().getReference("ubicacion_usuario")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,7 +61,6 @@ class MainActivity : AppCompatActivity() {
 
         mapaMapBox = findViewById(R.id.mapView)
 
-        // //CUADRITO QUE MUESTRA LA LATITUD Y LONGITUD
         barraDeLatYLon = TextView(this).apply {
             textSize = 14f
             setPadding(20, 10, 20, 10)
@@ -108,35 +112,37 @@ class MainActivity : AppCompatActivity() {
         mapaMapBox.location.addOnIndicatorPositionChangedListener(escuchaUbicacion!!)
     }
 
-    // //ACTUALIZAR EL PUNTERITO SEGÚN LA UBI Y LA VELOCIDAD
     private fun actualizarMarcador(punto: Point) {
-        runOnUiThread { // //PARA QUE NO SE MODIFIQUE EN SEGUNDO PLANO
-            val colorMarcador = determinarColorMarcador(punto) // //LLAMO A LA FUNCIÓN QUE HACE QUE MI PUNTERO CAMBIE DE COLOR
-            if (marcadorUsuario == null) { // //PUNTERO MARCANDO EN UN LUGAR
+        runOnUiThread {
+            val colorMarcador = determinarColorMarcador(punto)
+            if (marcadorUsuario == null) {
                 marcadorUsuario = gestorMarcadores?.create(
                     PointAnnotationOptions()
-                        .withPoint(punto) // Mapbox
-                        .withIconImage(crearMarcadorColor(colorMarcador)) // Mapbox
+                        .withPoint(punto)
+                        .withIconImage(crearMarcadorColor(colorMarcador))
                 )
-            } else { // Mapbox
+            } else {
                 marcadorUsuario?.point = punto
                 marcadorUsuario?.iconImageBitmap = crearMarcadorColor(colorMarcador)
                 gestorMarcadores?.update(marcadorUsuario!!)
             }
-            barraDeLatYLon.text = "Lat: %.5f, Lon: %.5f".format(punto.latitude(), punto.longitude()) // //PROPIO DEL IN
-            // Mueve la cámara del mapa hacia la ubicación actual con zoom de calle
+            barraDeLatYLon.text = "Lat: %.5f, Lon: %.5f".format(punto.latitude(), punto.longitude())
+
+            // Envía la ubicación a Firebase en tiempo real
+            val datosUbicacion = mapOf("lat" to punto.latitude(), "lon" to punto.longitude())
+            dbRef.setValue(datosUbicacion)
+
             val options = com.mapbox.maps.CameraOptions.Builder()
                 .center(punto)
                 .zoom(15.0)
                 .build()
             mapaMapBox.getMapboxMap().setCamera(options)
-            ubiAnterior = punto // Android
+            ubiAnterior = punto
         }
     }
 
-    // Métodos auxiliares temporales (se completarán en las siguientes diapositivas)
     private fun determinarColorMarcador(punto: Point): Int {
-        return 0xFF0000FF.toInt() // Azul por defecto
+        return 0xFF0000FF.toInt()
     }
 
     private fun crearMarcadorColor(colorHex: Int): Bitmap {
